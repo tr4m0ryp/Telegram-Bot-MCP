@@ -21,7 +21,7 @@ from ..config import AppConfig
 
 logger = logging.getLogger(__name__)
 
-ASGIApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]
+ASGIApp = Callable[..., Awaitable[None]]
 
 
 class BearerAuthMiddleware:
