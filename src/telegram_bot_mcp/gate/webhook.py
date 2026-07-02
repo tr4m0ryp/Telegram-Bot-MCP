@@ -1,16 +1,20 @@
-"""Inbound Telegram webhook: the operator's Approve/Cancel tap.
+"""Inbound Telegram webhook handler (Starlette).
 
 This path never touches Claude. It verifies the tap came from the configured
 operator, then approves-and-mints atomically: on Approve a one-time launch token
 is minted, bound to the RoE hash snapshotted when the request was sent. The token
 is never put in message text and never returned to Telegram — only "Approved" is
-shown.
+shown. Registered as a FastMCP custom route (see gate/routes.py), outside the MCP
+OAuth gate, because Telegram cannot perform OAuth; it self-authenticates via the
+shared secret header plus the operator-id check.
 """
 
 import hmac
+import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from telegram import Update
 from telegram.error import TelegramError
 
@@ -23,78 +27,76 @@ logger = logging.getLogger(__name__)
 
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
-router = APIRouter()
 
-
-def _verify_secret(request: Request) -> None:
+def _secret_ok(request: Request) -> bool:
     """Enforce Telegram's secret header. Fails CLOSED if no secret is configured."""
     secret = load_config().telegram.webhook_secret
     if not secret:
-        # Without a shared secret the request body (including from.id) is fully
-        # attacker-controllable, so operator identity would be meaningless. Refuse.
         logger.error("WEBHOOK_SECRET not configured; refusing all webhook traffic")
-        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+        return False
     provided = request.headers.get(SECRET_HEADER, "")
-    if not hmac.compare_digest(provided, secret):
-        logger.warning("Webhook rejected: bad secret token")
-        raise HTTPException(status_code=403, detail="Invalid secret token")
+    return hmac.compare_digest(provided, secret)
 
 
-@router.post("/telegram/webhook")
-async def telegram_webhook(request: Request) -> dict[str, str]:
+async def handle_webhook(request: Request) -> JSONResponse:
     """Handle a Telegram callback-query update from the operator."""
-    _verify_secret(request)
+    if not _secret_ok(request):
+        return JSONResponse({"status": "forbidden"}, status_code=403)
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"status": "bad_request"}, status_code=400)
 
     bot = await get_bot()
-    update = Update.de_json(await request.json(), bot)
+    update = Update.de_json(payload, bot)
     query = update.callback_query if update else None
     if query is None:
-        return {"status": "ignored"}
+        return JSONResponse({"status": "ignored"})
 
     operator_id = load_config().telegram.operator_user_id
     if operator_id is None:
         logger.error("OPERATOR_TELEGRAM_USER_ID not configured; refusing all taps")
         await query.answer(text="Not authorized.")
-        return {"status": "unauthorized"}
+        return JSONResponse({"status": "unauthorized"}, status_code=403)
 
-    # Only the operator's taps are honored — even inside the same chat.
     if query.from_user is None or query.from_user.id != operator_id:
         logger.warning("Ignoring callback from non-operator user %s",
                        getattr(query.from_user, "id", "unknown"))
         await query.answer(text="Not authorized.")
-        return {"status": "unauthorized"}
+        return JSONResponse({"status": "unauthorized"}, status_code=403)
 
     data = decode(query.data or "")
     if data is None:
         await query.answer(text="Unrecognized action.")
-        return {"status": "bad_data"}
+        return JSONResponse({"status": "bad_data"}, status_code=400)
 
     if data.decision == APPROVE:
         return await _approve(query, data.engagement_id, data.nonce)
     return await _cancel(query, data.engagement_id, data.nonce)
 
 
-async def _approve(query, engagement_id: str, nonce: str) -> dict[str, str]:
+async def _approve(query, engagement_id: str, nonce: str) -> JSONResponse:
     """Atomically approve + mint. The token value never leaves this function."""
     minted = await approve_pending_and_mint(engagement_id, nonce)
     if minted is None:
         await query.answer(text="This request already handled or expired.")
         await _edit(query, "Expired — no longer actionable.")
-        return {"status": "stale"}
+        return JSONResponse({"status": "stale"})
     await query.answer(text="Approved.")
     await _edit(query, "Approved — launch authorized.")
-    return {"status": "approved"}
+    return JSONResponse({"status": "approved"})
 
 
-async def _cancel(query, engagement_id: str, nonce: str) -> dict[str, str]:
+async def _cancel(query, engagement_id: str, nonce: str) -> JSONResponse:
     matched = await cancel_pending(engagement_id, nonce)
     if not matched:
         await query.answer(text="This request already handled or expired.")
         await _edit(query, "Expired — no longer actionable.")
-        return {"status": "stale"}
+        return JSONResponse({"status": "stale"})
     await query.answer(text="Cancelled.")
     await _edit(query, "Cancelled — no token minted.")
-    return {"status": "cancelled"}
+    return JSONResponse({"status": "cancelled"})
 
 
 async def _edit(query, text: str) -> None:

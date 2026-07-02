@@ -1,72 +1,73 @@
-"""The launch-gate MCP server: the only Telegram-facing surface the routine reaches.
+"""The launch-gate FastMCP server: MCP tools + custom routes + auth, one app.
 
-Exposes exactly two tools. Neither mints a token, approves, or launches — the
-routine is structurally unable to self-approve. Granting happens only via the
-operator's tap on the webhook (gate/webhook.py), out of the routine's reach.
+Built on FastMCP v3 (like enrichment-mcp) so the auth layer can be a full OAuth
+provider — which is what claude.ai custom connectors require. The two outbound
+tools are the only Telegram-facing surface the routine reaches; granting happens
+only via the operator's tap on the webhook, out of the routine's reach.
 """
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from telegram.error import TelegramError
 
-from ..approval import attach_message, create_pending, delete_pending, valid_engagement_id
-from ..tokens import get_engagement
-from . import notify
+from ..config import AppConfig, load_config
+from ..db import close_pool
+from .auth import build_auth
+from .routes import register_routes
+from .tools import register_tools
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("Telegram Launch Gate")
 
+async def _register_webhook() -> None:
+    """Point Telegram at our webhook on startup, if a public URL is configured."""
+    config = load_config()
+    if not config.telegram.webhook_url:
+        return
+    from .notify import get_bot
 
-@mcp.tool()
-async def send_notification(text: str) -> str:
-    """Send a plain notification to the operator's Telegram chat.
-
-    Use for status pings (lead replied, run complete, needs attention). Sends to
-    the configured operator chat only; it cannot target arbitrary chats.
-    """
-    message_id = await notify.send_notification(text)
-    return f"Notification sent (message {message_id})."
-
-
-@mcp.tool()
-async def request_launch_approval(
-    engagementId: str, companyName: str, scopeHosts: list[str]
-) -> dict:
-    """Ask the operator to approve a launch, showing the SIGNED scope.
-
-    The message displays the engagement's signed company + scope hosts (from the
-    verified record, not these arguments) with inline Approve / Cancel buttons,
-    and flags any mismatch with what the routine requested. This only REQUESTS the
-    gate; it authorizes nothing. The button callback carries the engagement id and
-    a random nonce — never a token. Returns {"sent": true, "messageId": <id>} or
-    {"sent": false, "error": <reason>}.
-    """
-    if not valid_engagement_id(engagementId):
-        return {"sent": False, "error": "invalid engagementId (use [A-Za-z0-9_-], <=28 chars)"}
-
-    engagement = await get_engagement(engagementId)
-    if engagement is None:
-        return {"sent": False, "error": "unknown or unsigned engagement"}
-
-    nonce = await create_pending(
-        engagementId, engagement.roe_hash, engagement.company_name, engagement.scope_hosts
-    )
     try:
-        chat_id, message_id = await notify.send_approval_request(
-            engagementId,
-            nonce,
-            engagement.company_name,
-            engagement.scope_hosts,
-            companyName,
-            scopeHosts,
+        bot = await get_bot()
+        await bot.set_webhook(
+            url=config.telegram.webhook_url,
+            secret_token=config.telegram.webhook_secret,
+            allowed_updates=["callback_query"],
         )
+        logger.info("Telegram webhook registered: %s", config.telegram.webhook_url)
     except TelegramError as exc:
-        await delete_pending(engagementId, nonce)
-        logger.error("Failed to send approval request for %s: %s", engagementId, exc)
-        return {"sent": False, "error": f"could not send approval request: {exc}"}
+        logger.error("Failed to register webhook on startup: %s", exc)
 
-    await attach_message(engagementId, nonce, chat_id, message_id)
-    logger.info("Launch approval requested for engagement %s", engagementId)
-    return {"sent": True, "messageId": message_id}
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[None]:
+    from .notify import close_bot
+
+    await _register_webhook()
+    yield
+    await close_bot()
+    await close_pool()
+
+
+def build_server(config: AppConfig | None = None) -> FastMCP:
+    """Construct the FastMCP app with auth, the two tools, and the custom routes.
+
+    Construction is pure — no DB or Telegram connection happens here — but it does
+    resolve the auth layer, so an unconfigured auth mode fails fast at import.
+    """
+    config = config or load_config()
+    mcp = FastMCP("Telegram Launch Gate", auth=build_auth(config), lifespan=lifespan)
+    register_tools(mcp)
+    register_routes(mcp)
+    return mcp
+
+
+mcp = build_server()
+
+
+def run(host: str = "0.0.0.0", port: int = 8080) -> None:
+    """Serve /mcp (+ OAuth metadata), /telegram/webhook, /health over HTTP."""
+    logger.info("Serving Telegram Launch Gate at http://%s:%d/mcp", host, port)
+    mcp.run(transport="http", host=host, port=port)

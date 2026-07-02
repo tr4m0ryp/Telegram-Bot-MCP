@@ -1,25 +1,23 @@
-"""Internal launch-token endpoint: POST /launch-tokens.
+"""Internal launch-token endpoint handler: POST /launch-tokens (Starlette).
 
-Reachable ONLY by this service's own webhook handler. Two guards, whichever
-applies to the deployment:
-  - same-process: the webhook calls mint_token() directly and never touches HTTP.
-  - out-of-process: requests must carry the TOKEN_MINT_SECRET bearer.
-It is never guarded by the MCP bearer and never holds anything the routine can
-reach — that is what keeps the human gate real.
+Reachable ONLY by this service's own webhook handler. When exposed out-of-process
+it must carry the TOKEN_MINT_SECRET bearer; the route is registered only when that
+secret is set (gate/routes.py), so by default it does not exist. It is never
+guarded by the MCP bearer and never holds anything the routine can reach.
 """
 
 import hmac
+import json
 import logging
 
-from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from ..config import load_config
 from .store import DEFAULT_TTL_SECONDS, mint_token
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter()
 
 
 class MintRequest(BaseModel):
@@ -30,35 +28,31 @@ class MintRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class MintResponse(BaseModel):
-    token: str
-    engagement_id: str
-    expires_at: str
-
-
-def _require_mint_secret(authorization: str | None) -> None:
-    """Enforce the TOKEN_MINT_SECRET bearer for out-of-process callers."""
+def _mint_secret_ok(request: Request) -> bool:
     secret = load_config().security.token_mint_secret
     if not secret:
-        # No secret configured: out-of-process minting is disabled. The webhook
-        # must use the in-process minter instead of this HTTP route.
-        raise HTTPException(status_code=503, detail="Token minting over HTTP is disabled")
-    provided = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        provided = authorization[len("bearer ") :]
-    if not hmac.compare_digest(provided, secret):
-        raise HTTPException(status_code=403, detail="Invalid mint secret")
+        return False
+    auth = request.headers.get("authorization", "")
+    provided = auth[len("bearer ") :] if auth.lower().startswith("bearer ") else ""
+    return hmac.compare_digest(provided, secret)
 
 
-@router.post("/launch-tokens", response_model=MintResponse)
-async def create_launch_token(
-    request: MintRequest, authorization: str | None = Header(default=None)
-) -> MintResponse:
+async def handle_mint(request: Request) -> JSONResponse:
     """Mint a one-time launch token. Internal callers only."""
-    _require_mint_secret(authorization)
-    minted = await mint_token(request.engagement_id, request.roe_hash, request.ttl_seconds)
-    return MintResponse(
-        token=minted.token,
-        engagement_id=minted.engagement_id,
-        expires_at=minted.expires_at.isoformat(),
+    if not _mint_secret_ok(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    try:
+        body = await request.json()
+        req = MintRequest(**body)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        return JSONResponse({"error": f"invalid request: {exc}"}, status_code=400)
+
+    minted = await mint_token(req.engagement_id, req.roe_hash, req.ttl_seconds)
+    return JSONResponse(
+        {
+            "token": minted.token,
+            "engagement_id": minted.engagement_id,
+            "expires_at": minted.expires_at.isoformat(),
+        }
     )

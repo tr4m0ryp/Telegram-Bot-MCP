@@ -71,6 +71,17 @@ class SecurityConfig:
     token_mint_secret: str | None = None
     # Public HTTPS base used to register the Telegram webhook and advertise OAuth.
     public_url: str | None = None
+    # OAuth base URL the provider advertises (RFC 8414 metadata). Defaults to
+    # public_url; register <base>/auth/callback with the IdP.
+    mcp_base_url: str | None = None
+    # WorkOS AuthKit (the recommended claude.ai-web path).
+    workos_authkit_domain: str | None = None
+    workos_client_id: str | None = None
+    workos_client_secret: str | None = None
+    # Generic OIDC provider (Auth0, Google, Descope, ...) as an alternative.
+    oidc_config_url: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None
 
     @classmethod
     def from_env(cls) -> "SecurityConfig":
@@ -81,6 +92,13 @@ class SecurityConfig:
             == "true",
             token_mint_secret=os.getenv("TOKEN_MINT_SECRET"),
             public_url=os.getenv("PUBLIC_URL"),
+            mcp_base_url=os.getenv("MCP_BASE_URL") or os.getenv("PUBLIC_URL"),
+            workos_authkit_domain=os.getenv("WORKOS_AUTHKIT_DOMAIN"),
+            workos_client_id=os.getenv("WORKOS_CLIENT_ID"),
+            workos_client_secret=os.getenv("WORKOS_CLIENT_SECRET"),
+            oidc_config_url=os.getenv("MCP_OIDC_CONFIG_URL"),
+            oidc_client_id=os.getenv("MCP_OIDC_CLIENT_ID"),
+            oidc_client_secret=os.getenv("MCP_OIDC_CLIENT_SECRET"),
         )
 
 

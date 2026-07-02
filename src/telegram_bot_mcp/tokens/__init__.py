@@ -1,6 +1,6 @@
 """Launch-token store: minting, validation, and the internal HTTP endpoint."""
 
-from .endpoint import router as token_router
+from .endpoint import handle_mint
 from .store import (
     Engagement,
     MintedToken,
@@ -20,8 +20,8 @@ __all__ = [
     "approve_pending_and_mint",
     "claim_token_for_engagement",
     "get_engagement",
+    "handle_mint",
     "lookup_roe_hash",
     "mint_token",
-    "token_router",
     "validate_and_consume",
 ]

@@ -6,9 +6,8 @@
 import logging
 import os
 
-import uvicorn
-
 from ..config import load_config
+from .server import run
 
 
 def main() -> None:
@@ -19,12 +18,7 @@ def main() -> None:
     )
     # Cloud Run injects PORT; fall back to the configured server port.
     port = int(os.getenv("PORT", str(config.server.port)))
-    uvicorn.run(
-        "telegram_bot_mcp.gate.app:app",
-        host=config.server.host,
-        port=port,
-        log_level=config.server.log_level.lower(),
-    )
+    run(host=config.server.host, port=port)
 
 
 if __name__ == "__main__":
