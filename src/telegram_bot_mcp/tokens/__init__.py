@@ -1,6 +1,5 @@
 """Launch-token store: minting, validation, and the internal HTTP endpoint."""
 
-from .db import close_pool, get_pool
 from .endpoint import router as token_router
 from .store import (
     MintedToken,
@@ -13,8 +12,6 @@ from .store import (
 __all__ = [
     "MintedToken",
     "ValidationError",
-    "close_pool",
-    "get_pool",
     "lookup_roe_hash",
     "mint_token",
     "token_router",
