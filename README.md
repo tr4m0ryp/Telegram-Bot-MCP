@@ -13,6 +13,8 @@ production webhook server.
   `/stats`, `/clear` and context-aware replies.
 - **Webhook server** (`telegram_bot_mcp.webhook`) — FastAPI app for production webhook
   deployments, with health/status/admin endpoints.
+- **Launch gate** (`telegram_bot_mcp.gate`) — the deployable approval service described
+  below: outbound MCP tools, an inbound operator-tap webhook, and a launch-token endpoint.
 
 ## Project structure
 
@@ -22,10 +24,17 @@ src/telegram_bot_mcp/
 ├── server.py         # Smithery entry point (session-scoped config)
 ├── config.py         # environment-backed configuration
 ├── storage.py        # shared in-memory stores
+├── db/               # shared asyncpg pool + schema.sql (gate)
 ├── mcp/              # full MCP server: app, tools, resources, prompts
 ├── bot/              # bot runtime: runner, commands, chat, replies
 ├── webhook/          # FastAPI server: app, telegram, status, admin
+├── approval/         # launch-gate: pending-nonce store + callback codec
+├── tokens/           # launch-gate: token mint/validate + internal endpoint
+├── gate/             # launch-gate service: server, tools, auth, webhook, app
 └── cli/              # unified launcher: args, preflight, run
+deploy/
+├── deploy-cloudrun.sh   # Cloud Run deploy
+└── set-webhook.sh       # register the Telegram webhook
 scripts/
 └── client.py         # example MCP client
 ```
@@ -105,14 +114,75 @@ Note: user sessions and stats live in an in-memory store scoped to one process. 
 `telegram://users/active` see only its own activity. Back the store with a database
 (`storage.py`) for cross-process state.
 
-## Docker
+## Launch gate
+
+A deployable service that puts a real human gate in front of launching an autonomous run.
+Two directions of Telegram traffic are split deliberately:
+
+- **Outbound (Claude → operator).** The routine calls MCP tools at `/mcp` to notify the
+  operator and to *ask* for launch approval. This is the only Telegram-facing surface Claude
+  can reach.
+- **Inbound (operator tap → token).** The operator's Approve tap goes from Telegram to this
+  service's `/telegram/webhook`, never to Claude. The webhook verifies the operator, then
+  mints a one-time launch token. Claude is not in this path.
+
+**Claude/the routine can request approval but cannot grant it.** Only the configured operator
+can approve, and granting mints the token outside Claude's reach — so the routine is
+structurally unable to approve its own launches.
+
+### MCP tools (outbound, bearer-guarded)
+
+- `send_notification(text)` — plain ping to the operator chat only.
+- `request_launch_approval(engagementId, companyName, scopeHosts[])` — sends a message that
+  **shows the scope** with inline Approve / Cancel buttons; returns `{sent, messageId}`. The
+  button callback carries the engagement id and a random nonce — never a token. No tool mints
+  a token, approves, or launches.
+
+### Operator tap (inbound, Claude-free)
+
+`POST /telegram/webhook` handles button taps. It honors a tap only if `from.id` equals
+`OPERATOR_TELEGRAM_USER_ID` (everyone else is ignored), matches the nonce to a still-pending
+approval (defeating replays/stale taps), and on **Approve** looks up the engagement's signed
+Rules-of-Engagement hash and mints a token bound to `engagement_id` + that RoE hash. The
+message is edited to "Approved — launch authorized"; the token is never shown. **Cancel**
+mints nothing.
+
+### Token endpoint (internal only)
+
+`POST /launch-tokens` mints and stores a token in the `launch_token` table. It is reachable
+only by this service's webhook (same-process minting by default; guarded by
+`TOKEN_MINT_SECRET` if exposed out-of-process) — never by the MCP bearer, never by anything
+the routine holds. Tokens are opaque, single-use, time-limited, and bound to engagement +
+RoE hash. The downstream run tool validates and consumes them (`tokens.validate_and_consume`).
+
+### Run and deploy
 
 ```bash
-docker build -t telegram-bot-mcp .
-docker run -p 8081:8081 telegram-bot-mcp
+uv sync --extra full
+python -m telegram_bot_mcp.gate            # serve locally on $PORT (default 8080)
+
+bash deploy/deploy-cloudrun.sh             # deploy to Cloud Run (see script header)
+bash deploy/set-webhook.sh                 # register the Telegram webhook
 ```
 
-The container serves the Smithery MCP server over streamable HTTP on port 8081.
+MCP auth mirrors enrichment-mcp's single-swap seam (`gate/auth.py`): static bearer
+(`MCP_BEARER_TOKEN`) works for Claude Code today. claude.ai custom connectors require OAuth
+(authorization-server metadata + Dynamic Client Registration); that is a one-line swap —
+set `MCP_OAUTH_PROVIDER` and mount a FastMCP-v3 auth provider — and is deferred until then.
+
+## Docker
+
+The repository ships two images:
+
+```bash
+# Launch gate (Cloud Run deployable): /mcp + /telegram/webhook + /launch-tokens
+docker build -t telegram-launch-gate .
+docker run -p 8080:8080 --env-file .env telegram-launch-gate
+
+# Smithery send-only server (optional standalone)
+docker build -f Dockerfile.smithery -t telegram-bot-mcp .
+docker run -p 8081:8081 telegram-bot-mcp
+```
 
 ## License
 
