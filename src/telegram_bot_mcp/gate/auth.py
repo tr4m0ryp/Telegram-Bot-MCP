@@ -78,5 +78,12 @@ def apply_auth(app: ASGIApp, config: AppConfig) -> ASGIApp:
         logger.info("MCP auth: static bearer")
         return BearerAuthMiddleware(app, token)
 
-    logger.warning("MCP auth: DISABLED (no MCP_BEARER_TOKEN set) — development only")
-    return app
+    if config.security.allow_unauthenticated:
+        logger.warning("MCP auth: DISABLED via MCP_ALLOW_UNAUTHENTICATED — development only")
+        return app
+
+    # Fail closed: a missing bearer must not silently open the MCP surface.
+    raise ValueError(
+        "No MCP auth configured. Set MCP_BEARER_TOKEN (or MCP_OAUTH_PROVIDER), or "
+        "MCP_ALLOW_UNAUTHENTICATED=true for local development only."
+    )
