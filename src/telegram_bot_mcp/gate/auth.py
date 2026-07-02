@@ -66,7 +66,7 @@ class BearerAuthMiddleware:
 
 def apply_auth(app: ASGIApp, config: AppConfig) -> ASGIApp:
     """Wrap the ASGI app with the configured auth mode. The single swap point."""
-    provider = (config.security_oauth_provider or "").lower()
+    provider = (config.security.oauth_provider or "").lower()
     if provider:
         raise NotImplementedError(
             f"OAuth provider '{provider}' requested but not wired in. Mount a FastMCP-v3 "
