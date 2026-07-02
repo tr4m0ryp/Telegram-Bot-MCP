@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with _mcp_app.router.lifespan_context(_mcp_app):
         await _register_webhook()
         yield
+        await close_bot()
         await close_pool()
 
 
