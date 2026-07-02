@@ -1,9 +1,10 @@
 """Inbound Telegram webhook: the operator's Approve/Cancel tap.
 
 This path never touches Claude. It verifies the tap came from the configured
-operator, matches it to a pending approval, and on Approve mints a one-time
-launch token bound to the engagement's signed RoE hash. The token is never put
-in message text and never returned to Telegram — only "Approved" is shown.
+operator, then approves-and-mints atomically: on Approve a one-time launch token
+is minted, bound to the RoE hash snapshotted when the request was sent. The token
+is never put in message text and never returned to Telegram — only "Approved" is
+shown.
 """
 
 import hmac
@@ -13,9 +14,9 @@ from fastapi import APIRouter, HTTPException, Request
 from telegram import Update
 from telegram.error import TelegramError
 
-from ..approval import APPROVE, decode, resolve_pending
+from ..approval import APPROVE, cancel_pending, decode
 from ..config import load_config
-from ..tokens import lookup_roe_hash, mint_token
+from ..tokens import approve_pending_and_mint
 from .notify import get_bot
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,13 @@ router = APIRouter()
 
 
 def _verify_secret(request: Request) -> None:
+    """Enforce Telegram's secret header. Fails CLOSED if no secret is configured."""
     secret = load_config().telegram.webhook_secret
-    if secret is None:
-        return
+    if not secret:
+        # Without a shared secret the request body (including from.id) is fully
+        # attacker-controllable, so operator identity would be meaningless. Refuse.
+        logger.error("WEBHOOK_SECRET not configured; refusing all webhook traffic")
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
     provided = request.headers.get(SECRET_HEADER, "")
     if not hmac.compare_digest(provided, secret):
         logger.warning("Webhook rejected: bad secret token")
@@ -44,7 +49,6 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     update = Update.de_json(await request.json(), bot)
     query = update.callback_query if update else None
     if query is None:
-        # Not a button tap (e.g. a plain message). Nothing to do.
         return {"status": "ignored"}
 
     operator_id = load_config().telegram.operator_user_id
@@ -65,34 +69,32 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         await query.answer(text="Unrecognized action.")
         return {"status": "bad_data"}
 
-    decision = "approved" if data.decision == APPROVE else "cancelled"
-    matched = await resolve_pending(data.engagement_id, data.nonce, decision)
+    if data.decision == APPROVE:
+        return await _approve(query, data.engagement_id, data.nonce)
+    return await _cancel(query, data.engagement_id, data.nonce)
+
+
+async def _approve(query, engagement_id: str, nonce: str) -> dict[str, str]:
+    """Atomically approve + mint. The token value never leaves this function."""
+    minted = await approve_pending_and_mint(engagement_id, nonce)
+    if minted is None:
+        await query.answer(text="This request already handled or expired.")
+        await _edit(query, "Expired — no longer actionable.")
+        return {"status": "stale"}
+    await query.answer(text="Approved.")
+    await _edit(query, "Approved — launch authorized.")
+    return {"status": "approved"}
+
+
+async def _cancel(query, engagement_id: str, nonce: str) -> dict[str, str]:
+    matched = await cancel_pending(engagement_id, nonce)
     if not matched:
         await query.answer(text="This request already handled or expired.")
         await _edit(query, "Expired — no longer actionable.")
         return {"status": "stale"}
-
-    if decision == "cancelled":
-        await query.answer(text="Cancelled.")
-        await _edit(query, "Cancelled — no token minted.")
-        return {"status": "cancelled"}
-
-    return await _approve(query, data.engagement_id)
-
-
-async def _approve(query, engagement_id: str) -> dict[str, str]:
-    """Mint a token bound to the engagement's RoE hash. Token never leaves here."""
-    roe_hash = await lookup_roe_hash(engagement_id)
-    if roe_hash is None:
-        logger.error("No RoE hash for engagement %s; cannot mint", engagement_id)
-        await query.answer(text="No signed scope on file — cannot authorize.")
-        await _edit(query, "Approval failed — no signed scope on file.")
-        return {"status": "no_roe"}
-
-    await mint_token(engagement_id, roe_hash)  # stored; value intentionally unused here
-    await query.answer(text="Approved.")
-    await _edit(query, "Approved — launch authorized.")
-    return {"status": "approved"}
+    await query.answer(text="Cancelled.")
+    await _edit(query, "Cancelled — no token minted.")
+    return {"status": "cancelled"}
 
 
 async def _edit(query, text: str) -> None:
