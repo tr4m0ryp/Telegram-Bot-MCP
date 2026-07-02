@@ -1,3 +1,33 @@
-/__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment and secrets
 .env
-*.pyc
+.env.*
+!.env.example
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime artifacts
+logs/
+*.log
+data/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/

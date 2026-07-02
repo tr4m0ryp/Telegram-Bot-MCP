@@ -1,11 +1,16 @@
-# Simple Telegram Bot MCP - FastMCP server for Telegram bot messaging
+# Telegram Bot MCP - Smithery MCP server over streamable HTTP
 # syntax=docker/dockerfile:1
 FROM python:3.12-slim
+
 WORKDIR /app
-# Copy project files
-COPY simple_telegram_bot_mcp.py ./
-# Install dependencies
-RUN pip install requests fastmcp uvicorn
-# Ensure logging flushes immediately
+COPY pyproject.toml ./
+COPY src ./src
+RUN pip install --no-cache-dir .
+
 ENV PYTHONUNBUFFERED=1
-ENTRYPOINT ["python", "simple_telegram_bot_mcp.py"] 
+ENV PORT=8081
+EXPOSE 8081
+
+# "start" is the smithery production entry point. Honor the PORT env var so
+# platforms that assign a port (Cloud Run, Railway, Heroku) reach the server.
+ENTRYPOINT ["sh", "-c", "exec start --host 0.0.0.0 --port \"${PORT}\""]
