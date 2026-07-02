@@ -134,26 +134,38 @@ structurally unable to approve its own launches.
 
 - `send_notification(text)` — plain ping to the operator chat only.
 - `request_launch_approval(engagementId, companyName, scopeHosts[])` — sends a message that
-  **shows the scope** with inline Approve / Cancel buttons; returns `{sent, messageId}`. The
-  button callback carries the engagement id and a random nonce — never a token. No tool mints
-  a token, approves, or launches.
+  shows the engagement's **signed** scope (looked up from the verified record, not the tool
+  arguments) with inline Approve / Cancel buttons; returns `{sent, messageId}`. If the routine
+  passes a company/scope that differs from the signed record, the message flags the mismatch —
+  the operator always approves the signed scope, not a routine-supplied label. The button
+  callback carries the engagement id and a random nonce — never a token. No tool mints a
+  token, approves, or launches.
 
 ### Operator tap (inbound, Claude-free)
 
-`POST /telegram/webhook` handles button taps. It honors a tap only if `from.id` equals
-`OPERATOR_TELEGRAM_USER_ID` (everyone else is ignored), matches the nonce to a still-pending
-approval (defeating replays/stale taps), and on **Approve** looks up the engagement's signed
-Rules-of-Engagement hash and mints a token bound to `engagement_id` + that RoE hash. The
-message is edited to "Approved — launch authorized"; the token is never shown. **Cancel**
-mints nothing.
+`POST /telegram/webhook` handles button taps. It **fails closed** if `WEBHOOK_SECRET` is unset
+(a forged body could otherwise spoof the operator id), and honors a tap only if `from.id`
+equals `OPERATOR_TELEGRAM_USER_ID`. It matches the nonce to a still-pending, non-expired
+approval (defeating replays/stale taps) and, on **Approve**, mints a token in a single
+transaction bound to the RoE hash **snapshotted when the request was sent** — so re-signing the
+engagement afterward cannot change what an already-shown request authorizes, and a tap can
+never leave an approved-but-tokenless state. The message is edited to "Approved — launch
+authorized"; the token is never shown. **Cancel** mints nothing.
 
-### Token endpoint (internal only)
+### Token store and redemption
 
-`POST /launch-tokens` mints and stores a token in the `launch_token` table. It is reachable
-only by this service's webhook (same-process minting by default; guarded by
-`TOKEN_MINT_SECRET` if exposed out-of-process) — never by the MCP bearer, never by anything
-the routine holds. Tokens are opaque, single-use, time-limited, and bound to engagement +
-RoE hash. The downstream run tool validates and consumes them (`tokens.validate_and_consume`).
+Tokens live in the `launch_token` table: opaque, single-use, time-limited, bound to
+engagement + RoE hash. The token value is **never returned through Claude**. A downstream run
+tool that shares this database redeems the grant with `tokens.claim_token_for_engagement`
+(atomic fetch-and-consume) or `tokens.validate_and_consume` if the value was delivered
+out-of-band. `POST /launch-tokens` (a raw-token mint guarded by `TOKEN_MINT_SECRET`) is
+**only mounted when that secret is set** — for a separate-process minter; by default the
+webhook mints in-process and the route does not exist, so it is not attack surface.
+
+### Fail-closed defaults
+
+The MCP surface refuses to start with no auth unless `MCP_ALLOW_UNAUTHENTICATED=true` is set
+explicitly (local dev only); a missing `MCP_BEARER_TOKEN` never silently opens `/mcp`.
 
 ### Run and deploy
 
