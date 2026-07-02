@@ -19,17 +19,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Everything beyond the Smithery send-only server: full MCP server,
-# polling bot, and the FastAPI webhook server.
+# Everything beyond the Smithery send-only server: full MCP server, polling bot,
+# the FastAPI webhook server, and the deployable launch-gate service.
 full = [
     "python-telegram-bot>=21.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.24.0",
     "httpx>=0.25.0",
+    "asyncpg>=0.29.0",
 ]
 
 [project.scripts]
 telegram-bot-mcp = "telegram_bot_mcp.cli:main"
+telegram-launch-gate = "telegram_bot_mcp.gate.__main__:main"
 dev = "smithery.cli.dev:main"          # Run the MCP server in development mode
 start = "smithery.cli.start:main"      # Run the MCP server in production mode
 playground = "smithery.cli.playground:main"  # Interactive testing playground
