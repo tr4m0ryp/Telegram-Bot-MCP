@@ -246,12 +246,23 @@ docker run -p 8080:8080 --env-file .env telegram-launch-gate
 docker build -f Dockerfile.smithery -t telegram-bot-mcp .  # the send-only server
 ```
 
+## Authentication
+
+The gate is built on FastMCP v3, so `MCP_OAUTH_PROVIDER` selects the auth layer at exactly one
+place (`gate/auth.py`), mirroring the enrichment MCP:
+
+- **claude.ai (web app):** `MCP_OAUTH_PROVIDER=workos` with `WORKOS_AUTHKIT_DOMAIN`,
+  `WORKOS_CLIENT_ID`, `WORKOS_CLIENT_SECRET`, and `MCP_BASE_URL`. FastMCP's WorkOS provider
+  serves OAuth authorization-server metadata, Dynamic Client Registration, and the
+  authorize/token/callback routes that claude.ai custom connectors require; register
+  `MCP_BASE_URL/auth/callback` in the WorkOS app. (`oidc` mode works with any OIDC provider.)
+- **Claude Code:** `MCP_BEARER_TOKEN` (leave `MCP_OAUTH_PROVIDER` empty).
+
+Bearer and OAuth are mutually exclusive per deployment. With neither set the service refuses to
+start unless `MCP_ALLOW_UNAUTHENTICATED=true`.
+
 ## Roadmap
 
-- **claude.ai custom connector (OAuth).** The MCP auth is isolated to a single swap
-  (`gate/auth.py`), mirroring the enrichment MCP's `MCP_OAUTH_PROVIDER` dispatch. Static bearer
-  works for Claude Code today; enabling a FastMCP-v3 WorkOS provider adds the authorization-
-  server metadata discovery + Dynamic Client Registration that claude.ai's web app requires.
 - **Durable state for the general bot.** The full server and bot keep sessions and stats in a
   process-local in-memory store; back it with the same Postgres for cross-process state.
 - **Direct token delivery.** An optional server-to-server push of the minted token to the run
