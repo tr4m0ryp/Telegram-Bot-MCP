@@ -62,8 +62,12 @@ class SecurityConfig:
     # Empty = bearer mode. Non-empty (e.g. "workos") selects an OAuth provider,
     # mirroring enrichment-mcp's MCP_OAUTH_PROVIDER single-swap.
     oauth_provider: str | None = None
+    # Explicit opt-in for an unauthenticated MCP surface (local dev only). Without
+    # this, a missing bearer/provider fails closed instead of silently opening.
+    allow_unauthenticated: bool = False
     # Guards POST /launch-tokens when it is reachable out-of-process. Same-process
-    # calls from the webhook use the in-process minter and never present this.
+    # calls from the webhook use the in-process minter and never present this. When
+    # unset, the HTTP mint route is not mounted at all (zero attack surface).
     token_mint_secret: str | None = None
     # Public HTTPS base used to register the Telegram webhook and advertise OAuth.
     public_url: str | None = None
@@ -73,6 +77,8 @@ class SecurityConfig:
         return cls(
             mcp_bearer_token=os.getenv("MCP_BEARER_TOKEN"),
             oauth_provider=os.getenv("MCP_OAUTH_PROVIDER"),
+            allow_unauthenticated=os.getenv("MCP_ALLOW_UNAUTHENTICATED", "false").lower()
+            == "true",
             token_mint_secret=os.getenv("TOKEN_MINT_SECRET"),
             public_url=os.getenv("PUBLIC_URL"),
         )
