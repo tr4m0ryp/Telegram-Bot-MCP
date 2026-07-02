@@ -52,6 +52,9 @@ class SecurityConfig:
 
     # Static bearer for Claude Code; the OAuth path (claude.ai) is a separate seam.
     mcp_bearer_token: str | None = None
+    # Empty = bearer mode. Non-empty (e.g. "workos") selects an OAuth provider,
+    # mirroring enrichment-mcp's MCP_OAUTH_PROVIDER single-swap.
+    oauth_provider: str | None = None
     # Guards POST /launch-tokens when it is reachable out-of-process. Same-process
     # calls from the webhook use the in-process minter and never present this.
     token_mint_secret: str | None = None
@@ -62,6 +65,7 @@ class SecurityConfig:
     def from_env(cls) -> "SecurityConfig":
         return cls(
             mcp_bearer_token=os.getenv("MCP_BEARER_TOKEN"),
+            oauth_provider=os.getenv("MCP_OAUTH_PROVIDER"),
             token_mint_secret=os.getenv("TOKEN_MINT_SECRET"),
             public_url=os.getenv("PUBLIC_URL"),
         )
