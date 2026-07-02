@@ -26,11 +26,16 @@ gcloud config set project "$PROJECT_ID"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
     artifactregistry.googleapis.com secretmanager.googleapis.com
 
+# claude.ai connector needs OAuth. WorkOS AuthKit values (non-secret except the
+# client secret). Register ${PUBLIC_URL}/auth/callback in the WorkOS app.
+WORKOS_AUTHKIT_DOMAIN="${WORKOS_AUTHKIT_DOMAIN:?set WORKOS_AUTHKIT_DOMAIN}"
+WORKOS_CLIENT_ID="${WORKOS_CLIENT_ID:?set WORKOS_CLIENT_ID}"
+
 # --- create secrets once (idempotent-ish; skip if they exist) ----------------
-# printf '%s' "$TELEGRAM_BOT_TOKEN" | gcloud secrets create TELEGRAM_BOT_TOKEN --data-file=-
-# printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create MCP_BEARER_TOKEN --data-file=-
-# printf '%s' "$WEBHOOK_SECRET"       | gcloud secrets create WEBHOOK_SECRET     --data-file=-
-# printf '%s' "$DATABASE_URL"         | gcloud secrets create GATE_DATABASE_URL  --data-file=-
+# printf '%s' "$TELEGRAM_BOT_TOKEN"   | gcloud secrets create TELEGRAM_BOT_TOKEN  --data-file=-
+# printf '%s' "$WEBHOOK_SECRET"       | gcloud secrets create WEBHOOK_SECRET      --data-file=-
+# printf '%s' "$DATABASE_URL"         | gcloud secrets create GATE_DATABASE_URL   --data-file=-
+# printf '%s' "$WORKOS_CLIENT_SECRET" | gcloud secrets create WORKOS_CLIENT_SECRET --data-file=-
 # Grant the compute SA secretAccessor (mirror enrichment) before first deploy.
 
 gcloud run deploy "$SERVICE" \
@@ -38,8 +43,8 @@ gcloud run deploy "$SERVICE" \
     --region "$REGION" \
     --allow-unauthenticated \
     --max-instances 1 \
-    --set-env-vars "OPERATOR_TELEGRAM_USER_ID=${OPERATOR_TELEGRAM_USER_ID},OPERATOR_CHAT_ID=${OPERATOR_CHAT_ID},TELEGRAM_WEBHOOK_URL=${WEBHOOK_URL},PUBLIC_URL=${PUBLIC_URL},MCP_OAUTH_PROVIDER=" \
-    --set-secrets "TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,MCP_BEARER_TOKEN=MCP_BEARER_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest,DATABASE_URL=GATE_DATABASE_URL:latest"
+    --set-env-vars "OPERATOR_TELEGRAM_USER_ID=${OPERATOR_TELEGRAM_USER_ID},OPERATOR_CHAT_ID=${OPERATOR_CHAT_ID},TELEGRAM_WEBHOOK_URL=${WEBHOOK_URL},PUBLIC_URL=${PUBLIC_URL},MCP_BASE_URL=${PUBLIC_URL},MCP_OAUTH_PROVIDER=workos,WORKOS_AUTHKIT_DOMAIN=${WORKOS_AUTHKIT_DOMAIN},WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}" \
+    --set-secrets "TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest,DATABASE_URL=GATE_DATABASE_URL:latest,WORKOS_CLIENT_SECRET=WORKOS_CLIENT_SECRET:latest"
 
 echo
 echo "Deployed. Cloud Run URL:"
