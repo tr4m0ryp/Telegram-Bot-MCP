@@ -70,7 +70,12 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(webhook_router)
-    app.include_router(token_router)
+    # Only expose the HTTP mint route when out-of-process minting is explicitly
+    # enabled. By default the webhook mints in-process, so this route (which
+    # returns a raw token for a caller-supplied RoE hash) is not attack surface.
+    if load_config().security.token_mint_secret:
+        app.include_router(token_router)
+        logger.info("Mounted /launch-tokens (TOKEN_MINT_SECRET set)")
     # Catch-all mount LAST so the explicit routes above take precedence.
     app.mount("/", _mcp_app)
     return app
