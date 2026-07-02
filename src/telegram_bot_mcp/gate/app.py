@@ -17,6 +17,7 @@ from ..config import load_config
 from ..db import close_pool
 from ..tokens import token_router
 from .auth import apply_auth
+from .notify import close_bot
 from .server import mcp
 from .webhook import router as webhook_router
 
