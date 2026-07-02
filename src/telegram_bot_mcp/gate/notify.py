@@ -69,7 +69,9 @@ def _approval_text(
         f"Company (signed): {escape(signed_company)}\n\n"
         f"<b>Signed scope</b> ({len(signed_hosts)} host(s)):\n{hosts}\n\n"
     )
-    mismatch = requested_company != signed_company or sorted(requested_hosts) != sorted(signed_hosts)
+    mismatch = requested_company != signed_company or sorted(requested_hosts) != sorted(
+        signed_hosts
+    )
     if mismatch:
         body += (
             "<b>Note:</b> the routine requested a scope that differs from the signed "
