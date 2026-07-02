@@ -46,8 +46,10 @@ class TelegramConfig:
             bot_token=bot_token,
             webhook_url=os.getenv("TELEGRAM_WEBHOOK_URL"),
             webhook_secret=os.getenv("WEBHOOK_SECRET"),
-            operator_user_id=_int_or_none(os.getenv("OPERATOR_TELEGRAM_USER_ID")),
-            operator_chat_id=_int_or_none(os.getenv("OPERATOR_CHAT_ID")),
+            operator_user_id=_int_or_none(
+                os.getenv("OPERATOR_TELEGRAM_USER_ID"), "OPERATOR_TELEGRAM_USER_ID"
+            ),
+            operator_chat_id=_int_or_none(os.getenv("OPERATOR_CHAT_ID"), "OPERATOR_CHAT_ID"),
         )
 
 
