@@ -26,7 +26,9 @@ class CallbackData:
 
 def decode(raw: str) -> CallbackData | None:
     """Parse callback data, or return None if it is not ours / malformed."""
-    parts = raw.split(_SEP)
+    # maxsplit=3 keeps a well-formed value intact even if the last field ever
+    # contained a separator (engagement_id is charset-validated upstream).
+    parts = raw.split(_SEP, 3)
     if len(parts) != 4 or parts[0] != _PREFIX:
         return None
     _, decision, engagement_id, nonce = parts
