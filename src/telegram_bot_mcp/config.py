@@ -12,8 +12,13 @@ from typing import Any
 from dotenv import load_dotenv
 
 
-def _int_or_none(value: str | None) -> int | None:
-    return int(value) if value else None
+def _int_or_none(value: str | None, name: str) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(value.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {value!r}") from exc
 
 
 @dataclass
