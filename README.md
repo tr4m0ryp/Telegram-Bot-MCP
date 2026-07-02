@@ -1,5 +1,11 @@
 # Telegram Bot MCP: Telegram messaging for MCP clients, with a human-in-the-loop launch gate
 
+**A Telegram MCP server that lets any MCP client -- Claude Code, claude.ai -- send messages
+and manage a bot, plus a deployable launch-approval gate that keeps a human in the loop before
+an autonomous run starts.** The MCP tools can *ask* for approval; only the operator's Telegram
+tap can *grant* it, minting a scope-bound, single-use token the model never sees. Built on
+FastMCP over Streamable HTTP, a FastAPI webhook, and Postgres.
+
 ## Project Overview
 
 Autonomous agents increasingly take actions that a human should sign off on before they
