@@ -11,7 +11,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .db import get_pool
+from ..db import get_pool
 
 logger = logging.getLogger(__name__)
 
