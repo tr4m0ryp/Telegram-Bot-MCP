@@ -12,6 +12,18 @@ from typing import Any
 from dotenv import load_dotenv
 
 
+def _secret(name: str) -> str | None:
+    """Read a secret env var, stripping surrounding whitespace.
+
+    Secret Manager values piped from `openssl`/`echo` often carry a trailing
+    newline; a stray newline in a bearer/webhook secret silently breaks
+    constant-time comparisons and Telegram's secret-token check. Secrets never
+    have meaningful leading/trailing whitespace, so stripping is safe.
+    """
+    value = os.getenv(name)
+    return value.strip() if value else value
+
+
 def _int_or_none(value: str | None, name: str) -> int | None:
     if not value:
         return None
