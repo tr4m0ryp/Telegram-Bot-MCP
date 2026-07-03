@@ -51,13 +51,13 @@ class TelegramConfig:
 
     @classmethod
     def from_env(cls) -> "TelegramConfig":
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        bot_token = _secret("TELEGRAM_BOT_TOKEN")
         if not bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
         return cls(
             bot_token=bot_token,
             webhook_url=os.getenv("TELEGRAM_WEBHOOK_URL"),
-            webhook_secret=os.getenv("WEBHOOK_SECRET"),
+            webhook_secret=_secret("WEBHOOK_SECRET"),
             operator_user_id=_int_or_none(
                 os.getenv("OPERATOR_TELEGRAM_USER_ID"), "OPERATOR_TELEGRAM_USER_ID"
             ),
@@ -98,16 +98,16 @@ class SecurityConfig:
     @classmethod
     def from_env(cls) -> "SecurityConfig":
         return cls(
-            mcp_bearer_token=os.getenv("MCP_BEARER_TOKEN"),
+            mcp_bearer_token=_secret("MCP_BEARER_TOKEN"),
             oauth_provider=os.getenv("MCP_OAUTH_PROVIDER"),
             allow_unauthenticated=os.getenv("MCP_ALLOW_UNAUTHENTICATED", "false").lower()
             == "true",
-            token_mint_secret=os.getenv("TOKEN_MINT_SECRET"),
+            token_mint_secret=_secret("TOKEN_MINT_SECRET"),
             public_url=os.getenv("PUBLIC_URL"),
             mcp_base_url=os.getenv("MCP_BASE_URL") or os.getenv("PUBLIC_URL"),
             workos_authkit_domain=os.getenv("WORKOS_AUTHKIT_DOMAIN"),
             workos_client_id=os.getenv("WORKOS_CLIENT_ID"),
-            workos_client_secret=os.getenv("WORKOS_CLIENT_SECRET"),
+            workos_client_secret=_secret("WORKOS_CLIENT_SECRET"),
             oidc_config_url=os.getenv("MCP_OIDC_CONFIG_URL"),
             oidc_client_id=os.getenv("MCP_OIDC_CLIENT_ID"),
             oidc_client_secret=os.getenv("MCP_OIDC_CLIENT_SECRET"),
@@ -122,7 +122,7 @@ class DatabaseConfig:
 
     @classmethod
     def from_env(cls) -> "DatabaseConfig":
-        return cls(url=os.getenv("DATABASE_URL"))
+        return cls(url=_secret("DATABASE_URL"))
 
     def require_url(self) -> str:
         if not self.url:
