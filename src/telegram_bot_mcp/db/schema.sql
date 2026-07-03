@@ -1,6 +1,13 @@
 -- Launch-gate schema. Idempotent: safe to run on every startup.
 --
--- `engagement` is the integration seam to the enrichment engagement store: in
+-- All gate tables live in a dedicated `launch_gate` Postgres schema so they never
+-- collide with the host database's own tables (e.g. a pentest tool's own
+-- `engagement`/launch-token tables). The connection pool sets search_path to this
+-- schema, so unqualified names below resolve here.
+CREATE SCHEMA IF NOT EXISTS launch_gate;
+SET search_path TO launch_gate;
+
+-- `engagement` is the integration seam to the engagement store: in
 -- production it is the table (or a view over it) that signature-verification
 -- populates with each engagement's signed Rules-of-Engagement hash and scope.
 -- Point DATABASE_URL at the enrichment Postgres and this becomes a no-op if the

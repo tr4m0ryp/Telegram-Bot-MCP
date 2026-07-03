@@ -25,7 +25,11 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         url = load_config().database.require_url()
-        _pool = await asyncpg.create_pool(url, min_size=1, max_size=2)
+        # search_path pins every connection to the gate's own schema, so its
+        # tables never collide with the host database's.
+        _pool = await asyncpg.create_pool(
+            url, min_size=1, max_size=2, server_settings={"search_path": "launch_gate"}
+        )
         async with _pool.acquire() as conn:
             await conn.execute(_SCHEMA_PATH.read_text())
         logger.info("Database pool ready")
